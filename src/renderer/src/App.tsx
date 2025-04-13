@@ -21,8 +21,6 @@ const GlobalStyle = createGlobalStyle`
 `;
 
 const AppContainer = styled.div`
-  max-width: 900px;
-  min-width: 300px;
   padding: 30px;
   margin: 0;
   height: 100%;

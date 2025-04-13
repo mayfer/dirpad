@@ -118,18 +118,23 @@ const EditorContainer = styled.div`
   border-radius: 8px;
   overflow: hidden;
   margin-top: 0;
+  height: calc(100% - 100px);
+  display: flex;
+  flex-direction: column;
 `;
 
 const EditorInner = styled.div`
   position: relative;
   padding: 15px;
   width: 100%;
-  min-height: 150px;
+  height: 100%;
+  overflow-y: auto;
+  flex: 1;
 `;
 
 const ContentEditableStyled = styled(ContentEditable)`
   outline: none;
-  min-height: 150px;
+  min-height: 100%;
   width: 100%;
   
   p {

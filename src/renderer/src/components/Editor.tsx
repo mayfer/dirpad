@@ -114,7 +114,7 @@ const GlobalEditorStyles = createGlobalStyle`
 // Styled components
 const EditorContainer = styled.div`
   width: 100%;
-  border: 1px solid #ccc;
+
   border-radius: 8px;
   overflow: hidden;
   margin-top: 0;
@@ -145,6 +145,7 @@ const ContentEditableStyled = styled(ContentEditable)`
 
 const Placeholder = styled.div`
   color: #aaa;
+  opacity: 0.3;
   overflow: hidden;
   position: absolute;
   top: 15px;
@@ -628,7 +629,7 @@ const Editor = ({ onSubmit }: EditorProps): JSX.Element => {
           <EditorInner>
             <RichTextPlugin
               contentEditable={<ContentEditableStyled />}
-              placeholder={<Placeholder>Type your message here... (supports markdown)</Placeholder>}
+              placeholder={<Placeholder>Type here...</Placeholder>}
               ErrorBoundary={LexicalErrorBoundary}
             />
             <EditorPlugins onSubmit={onSubmit} />

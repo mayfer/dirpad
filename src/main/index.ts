@@ -10,6 +10,10 @@ let mainWindow: BrowserWindow | null = null;
 // Global tray instance
 let tray: Tray | null = null;
 
+// Tray icon paths
+const normalIconPath = path.join(__dirname, '../../resources/dirpadTemplate@2x.png');
+// const pressedIconPath = path.join(__dirname, '../../resources/dirpadPressedTemplate@2x.png');
+
 // Function to handle showing or hiding the dock
 function updateDockVisibility(): void {
   if (process.platform === 'darwin' && app.dock) {
@@ -18,6 +22,14 @@ function updateDockVisibility(): void {
     } else {
       app.dock.hide();
     }
+  }
+}
+
+// Function to update tray icon based on window focus state
+function updateTrayIcon(isFocused: boolean): void {
+  if (tray) {
+    // tray.setImage(isFocused ? pressedIconPath : normalIconPath);
+    tray.setImage(normalIconPath);
   }
 }
 
@@ -62,6 +74,15 @@ function createWindow(): BrowserWindow {
     mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
   }
 
+  // Add focus/blur handlers
+  mainWindow.on('focus', () => {
+    updateTrayIcon(true);
+  });
+
+  mainWindow.on('blur', () => {
+    updateTrayIcon(false);
+  });
+
   return mainWindow;
 }
 
@@ -85,8 +106,8 @@ app.whenReady().then(() => {
   // Initialize dock visibility based on default setting
   updateDockVisibility()
 
-  // Create the tray
-  tray = new Tray(path.join(__dirname, '../../resources/dirpadTemplate@2x.png'));
+  // Create the tray with initial normal icon
+  tray = new Tray(normalIconPath);
 
   // Function to build and update the context menu
   function createContextMenu() {
@@ -158,8 +179,27 @@ app.whenReady().then(() => {
         Math.round(Math.max(0, Math.min(x, screenBounds.width - windowBounds.width))),
         Math.round(y)
       );
-      mainWindow.show();
-      mainWindow.focus(); // Also focus the window after showing it
+      
+      // On macOS, prevent space switching behavior
+      if (process.platform === 'darwin') {
+        // Make window visible on all workspaces temporarily
+        mainWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+        
+        // Show the window without activating the application
+        mainWindow.showInactive();
+        
+        // Make it visible only on the current workspace again
+        setTimeout(() => {
+          if (mainWindow) {
+            mainWindow.setVisibleOnAllWorkspaces(false);
+            mainWindow.focus(); // Focus window but should now be in current space
+          }
+        }, 100);
+      } else {
+        // Original behavior for other platforms
+        mainWindow.show();
+        mainWindow.focus();
+      }
     }
   });
 

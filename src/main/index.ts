@@ -2,6 +2,8 @@ import { app, shell, BrowserWindow, ipcMain, Tray, screen, Menu } from 'electron
 import path, { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset';
+import fetch from 'node-fetch';
+import * as cheerio from 'cheerio';
 
 // Track dock visibility state
 let showInDock = true;
@@ -30,6 +32,59 @@ function updateTrayIcon(isFocused: boolean): void {
   if (tray) {
     // tray.setImage(isFocused ? pressedIconPath : normalIconPath);
     tray.setImage(normalIconPath);
+  }
+}
+
+// Link metadata fetching function that runs in main process to avoid CORS
+async function fetchLinkMetadata(url: string) {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; DirpadBot/1.0; +https://dirpad.example.com)'
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch, status: ${response.status}`);
+    }
+    
+    const html = await response.text();
+    const $ = cheerio.load(html);
+    
+    // Extract metadata
+    const title = 
+      $('meta[property="og:title"]').attr('content') || 
+      $('title').text() || 
+      url;
+      
+    const description = 
+      $('meta[property="og:description"]').attr('content') || 
+      $('meta[name="description"]').attr('content') || 
+      '';
+      
+    const image = 
+      $('meta[property="og:image"]').attr('content') || 
+      $('meta[property="twitter:image"]').attr('content') || 
+      null;
+    
+    const domain = new URL(url).hostname;
+    
+    return {
+      url,
+      title,
+      description,
+      image,
+      domain
+    };
+  } catch (error) {
+    console.error('Error fetching link metadata:', error);
+    return {
+      url,
+      title: url,
+      description: '',
+      image: null,
+      domain: new URL(url).hostname
+    };
   }
 }
 
@@ -102,6 +157,12 @@ app.whenReady().then(() => {
 
   // IPC test
   ipcMain.on('ping', () => console.log('pong'))
+  
+  // Register IPC handler for link metadata fetching
+  ipcMain.handle('fetch-link-metadata', async (_, url) => {
+    console.log('Fetching metadata for:', url);
+    return await fetchLinkMetadata(url);
+  });
 
   // Initialize dock visibility based on default setting
   updateDockVisibility()

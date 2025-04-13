@@ -109,6 +109,12 @@ const GlobalEditorStyles = createGlobalStyle`
       vertical-align: bottom;
     }
   }
+  
+  .editor-link-preview {
+    border-radius: 6px;
+    
+    overflow: hidden;
+  }
 `;
 
 // Styled components
@@ -267,6 +273,9 @@ export function $isImageNode(node: LexicalNode | null | undefined): node is Imag
 // Add YouTube URL regex
 const YOUTUBE_URL_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
 
+// Add general URL regex
+const URL_REGEX = /https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)/i;
+
 // Add YouTube embed styled component
 const YouTubeEmbed = styled.div`
   position: relative;
@@ -371,16 +380,308 @@ function handleYouTubeLink(text: string, editor: any) {
   return false;
 }
 
-// Update ImagePastePlugin to handle YouTube links
+// Add link preview styled components
+const LinkPreviewContainer = styled.div`
+  border: 1px solid #e1e4e8;
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 16px 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: row;
+  background-color: #f8f9fa;
+  transition: all 0.2s ease;
+  
+  &:hover {
+    border-color: #c6cbd1;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+  }
+`;
+
+const LinkPreviewImage = styled.div`
+  width: 180px;
+  min-width: 180px;
+  height: 180px;
+  overflow: hidden;
+  
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+`;
+
+const LinkPreviewContent = styled.div`
+  padding: 12px 16px;
+`;
+
+const LinkPreviewTitle = styled.h3`
+  margin: 0 0 8px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #24292e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+`;
+
+const LinkPreviewDescription = styled.p`
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: #586069;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+`;
+
+const LinkPreviewDomain = styled.div`
+  font-size: 12px;
+  color: #6a737d;
+  display: flex;
+  align-items: center;
+  
+  svg {
+    margin-right: 6px;
+  }
+`;
+
+interface LinkMetadata {
+  url: string;
+  title: string;
+  description: string;
+  image: string | null;
+  domain: string;
+}
+
+interface SerializedLinkPreviewNode extends Spread<
+  {
+    url: string;
+    metadata: LinkMetadata;
+    type: 'linkpreview';
+    version: 1;
+  },
+  SerializedLexicalNode
+> {}
+
+// Create a custom LinkPreviewNode class
+class LinkPreviewNode extends DecoratorNode<JSX.Element> {
+  __url: string;
+  __metadata: LinkMetadata | null;
+
+  static getType(): string {
+    return 'linkpreview';
+  }
+
+  static clone(node: LinkPreviewNode): LinkPreviewNode {
+    return new LinkPreviewNode(node.__url, node.__metadata, node.__key);
+  }
+
+  constructor(url: string, metadata: LinkMetadata | null = null, key?: NodeKey) {
+    super(key);
+    this.__url = url;
+    this.__metadata = metadata;
+  }
+
+  createDOM(): HTMLElement {
+    const div = document.createElement('div');
+    div.className = 'editor-link-preview';
+    return div;
+  }
+
+  updateDOM(): false {
+    return false;
+  }
+
+  decorate(): JSX.Element {
+    return <LinkPreviewComponent url={this.__url} metadata={this.__metadata} />;
+  }
+
+  exportJSON(): SerializedLinkPreviewNode {
+    return {
+      type: 'linkpreview',
+      url: this.__url,
+      metadata: this.__metadata || {
+        url: this.__url,
+        title: '',
+        description: '',
+        image: null,
+        domain: new URL(this.__url).hostname
+      },
+      version: 1,
+    };
+  }
+
+  static importJSON(serializedNode: SerializedLinkPreviewNode): LinkPreviewNode {
+    return $createLinkPreviewNode(serializedNode.url, serializedNode.metadata);
+  }
+
+  setMetadata(metadata: LinkMetadata): void {
+    const self = this.getWritable();
+    self.__metadata = metadata;
+  }
+}
+
+export function $createLinkPreviewNode(url: string, metadata: LinkMetadata | null = null): LinkPreviewNode {
+  return new LinkPreviewNode(url, metadata);
+}
+
+export function $isLinkPreviewNode(node: LexicalNode | null | undefined): node is LinkPreviewNode {
+  return node instanceof LinkPreviewNode;
+}
+
+// LinkPreviewComponent that will fetch metadata if not provided
+const LinkPreviewComponent = ({ url, metadata }: { url: string; metadata: LinkMetadata | null }) => {
+  const [linkData, setLinkData] = useState<LinkMetadata | null>(metadata);
+  const [loading, setLoading] = useState<boolean>(!metadata);
+  const [error, setError] = useState<boolean>(false);
+  const [imageError, setImageError] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (!metadata && !error) {
+      setLoading(true);
+      fetchLinkMetadata(url)
+        .then((data) => {
+          setLinkData(data);
+          setLoading(false);
+        })
+        .catch(() => {
+          setError(true);
+          setLoading(false);
+        });
+    }
+  }, [url, metadata, error]);
+
+  if (loading) {
+    return (
+      <LinkPreviewContainer>
+        <LinkPreviewContent>
+          <LinkPreviewTitle>Loading preview...</LinkPreviewTitle>
+          <LinkPreviewDomain>
+            {new URL(url).hostname}
+          </LinkPreviewDomain>
+        </LinkPreviewContent>
+      </LinkPreviewContainer>
+    );
+  }
+
+  if (error || !linkData) {
+    return (
+      <LinkPreviewContainer>
+        <LinkPreviewContent>
+          <LinkPreviewTitle>{url}</LinkPreviewTitle>
+          <LinkPreviewDomain>
+            {new URL(url).hostname}
+          </LinkPreviewDomain>
+        </LinkPreviewContent>
+      </LinkPreviewContainer>
+    );
+  }
+
+  const { title, description, image, domain } = linkData;
+
+  return (
+    <LinkPreviewContainer>
+      {image && !imageError && (
+        <LinkPreviewImage>
+          <img 
+            src={image} 
+            onError={() => setImageError(true)}
+            alt={title}
+            loading="lazy"
+          />
+        </LinkPreviewImage>
+      )}
+      <LinkPreviewContent>
+        <LinkPreviewTitle>{title}</LinkPreviewTitle>
+        {description && <LinkPreviewDescription>{description}</LinkPreviewDescription>}
+        <LinkPreviewDomain>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM12 20C7.59 20 4 16.41 4 12C4 7.59 7.59 4 12 4C16.41 4 20 7.59 20 12C20 16.41 16.41 20 12 20ZM11 10H13V16H11V10ZM11 6H13V8H11V6Z" fill="currentColor" />
+          </svg>
+          {domain}
+        </LinkPreviewDomain>
+      </LinkPreviewContent>
+    </LinkPreviewContainer>
+  );
+};
+
+// Function to fetch link metadata
+async function fetchLinkMetadata(url: string): Promise<LinkMetadata> {
+  try {
+    // Use the IPC API to fetch metadata from the main process
+    // This avoids CORS issues since the request is made from Node.js
+    const metadata = await window.api.fetchLinkMetadata(url);
+    return metadata;
+  } catch (error) {
+    console.error('Error fetching link metadata:', error);
+    return {
+      url,
+      title: url,
+      description: '',
+      image: null,
+      domain: new URL(url).hostname
+    };
+  }
+}
+
+// Function to handle URL detection and link preview creation
+function handleUrlPaste(text: string, editor: any) {
+  // First check if it's a YouTube URL (which already has special handling)
+  if (text.match(YOUTUBE_URL_REGEX)) {
+    return false;
+  }
+  
+  // Check if it's a URL
+  const match = text.match(URL_REGEX);
+  if (match && match[0]) {
+    const url = match[0];
+    editor.update(() => {
+      const linkPreviewNode = $createLinkPreviewNode(url);
+      const selection = $getSelection();
+      if (selection) {
+        selection.insertNodes([linkPreviewNode]);
+      }
+    });
+    
+    // Fetch metadata after insertion
+    fetchLinkMetadata(url).then((metadata) => {
+      editor.update(() => {
+        // Find the link preview node we just inserted
+        const root = $getRoot();
+        root.getChildren().forEach((node) => {
+          if ($isLinkPreviewNode(node) && node.__url === url) {
+            node.setMetadata(metadata);
+          }
+        });
+      });
+    }).catch(console.error);
+    
+    return true;
+  }
+  return false;
+}
+
+// Update ImagePastePlugin to handle URL links
 function ImagePastePlugin(): null {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
     const handlePaste = (event: ClipboardEvent) => {
       const text = event.clipboardData?.getData('text');
-      if (text && handleYouTubeLink(text, editor)) {
-        event.preventDefault();
-        return;
+      if (text) {
+        // First check if it's a YouTube URL
+        if (handleYouTubeLink(text, editor)) {
+          event.preventDefault();
+          return;
+        }
+        
+        // Then check if it's a regular URL for link preview
+        if (handleUrlPaste(text, editor)) {
+          event.preventDefault();
+          return;
+        }
       }
 
       const files = event.clipboardData?.files;
@@ -529,7 +830,7 @@ const FocusPlugin = (): null => {
   return null;
 };
 
-// Update initialConfig to include ImageNode and YouTubeNode
+// Update initialConfig to include LinkPreviewNode
 const initialConfig = {
   namespace: 'MessagingEditor',
   // Initial editor state - empty for now
@@ -546,7 +847,8 @@ const initialConfig = {
     CodeNode,
     LinkNode,
     ImageNode,
-    YouTubeNode
+    YouTubeNode,
+    LinkPreviewNode
   ],
   // Define the theme with CSS classes
   theme: {
@@ -580,7 +882,8 @@ const initialConfig = {
       code: 'editor-text-code',
     },
     code: 'editor-code',
-    image: 'editor-image'
+    image: 'editor-image',
+    linkpreview: 'editor-link-preview'
   },
 };
 

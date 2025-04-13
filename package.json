@@ -27,8 +27,10 @@
     "@lexical/markdown": "^0.30.0",
     "@lexical/react": "^0.30.0",
     "@types/styled-components": "^5.1.34",
+    "cheerio": "^1.0.0",
     "electron-updater": "^6.3.9",
     "lexical": "^0.30.0",
+    "node-fetch": "^2.7.0",
     "styled-components": "^6.1.17"
   },
   "devDependencies": {

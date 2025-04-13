@@ -124,9 +124,16 @@ app.whenReady().then(() => {
       createWindow();
     }
 
-    // Toggle window visibility: hide if visible, show if hidden
-    if (mainWindow?.isVisible()) {
+    // Toggle window visibility or focus:
+    // 1. If window is visible AND focused, hide it
+    // 2. If window is visible but NOT focused, bring it to focus
+    // 3. If window is hidden, show it
+    if (mainWindow?.isVisible() && mainWindow.isFocused()) {
+      // Hide window if it's both visible and focused
       mainWindow.hide();
+    } else if (mainWindow?.isVisible()) {
+      // If window is visible but not focused, focus it
+      mainWindow.focus();
     } else if (mainWindow) {
       const trayBounds = tray!.getBounds();
       const windowBounds = mainWindow.getBounds();
@@ -152,6 +159,7 @@ app.whenReady().then(() => {
         Math.round(y)
       );
       mainWindow.show();
+      mainWindow.focus(); // Also focus the window after showing it
     }
   });
 

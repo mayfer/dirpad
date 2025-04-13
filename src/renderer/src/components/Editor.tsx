@@ -23,7 +23,8 @@ import {
   DecoratorNode,
   SerializedLexicalNode,
   Spread,
-  NodeKey
+  NodeKey,
+  RangeSelection
 } from 'lexical';
 import { HeadingNode, QuoteNode } from '@lexical/rich-text';
 import { ListNode, ListItemNode } from '@lexical/list';
@@ -112,16 +113,17 @@ const GlobalEditorStyles = createGlobalStyle`
 
 // Styled components
 const EditorContainer = styled.div`
-  max-width: 800px;
+  width: 100%;
   border: 1px solid #ccc;
   border-radius: 8px;
-  margin: 0 auto;
   overflow: hidden;
+  margin-top: 0;
 `;
 
 const EditorInner = styled.div`
   position: relative;
   padding: 15px;
+  width: 100%;
   min-height: 150px;
 `;
 
@@ -256,13 +258,125 @@ export function $isImageNode(node: LexicalNode | null | undefined): node is Imag
   return node instanceof ImageNode;
 }
 
-// Update ImagePastePlugin
+// Add YouTube URL regex
+const YOUTUBE_URL_REGEX = /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:[^\/\n\s]+\/\S+\/|(?:v|e(?:mbed)?)\/|\S*?[?&]v=)|youtu\.be\/)([a-zA-Z0-9_-]{11})/;
+
+// Add YouTube embed styled component
+const YouTubeEmbed = styled.div`
+  position: relative;
+  width: 100%;
+  padding-bottom: 56.25%; /* 16:9 Aspect Ratio */
+  margin: 16px 0;
+  
+  iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+    border-radius: 8px;
+  }
+`;
+
+interface SerializedYouTubeNode extends Spread<
+  {
+    videoId: string;
+    type: 'youtube';
+    version: 1;
+  },
+  SerializedLexicalNode
+> {}
+
+// Create a custom YouTubeNode class
+class YouTubeNode extends DecoratorNode<JSX.Element> {
+  __videoId: string;
+
+  static getType(): string {
+    return 'youtube';
+  }
+
+  static clone(node: YouTubeNode): YouTubeNode {
+    return new YouTubeNode(node.__videoId, node.__key);
+  }
+
+  constructor(videoId: string, key?: NodeKey) {
+    super(key);
+    this.__videoId = videoId;
+  }
+
+  createDOM(): HTMLElement {
+    const div = document.createElement('div');
+    div.className = 'youtube-embed';
+    return div;
+  }
+
+  updateDOM(): false {
+    return false;
+  }
+
+  decorate(): JSX.Element {
+    return (
+      <YouTubeEmbed>
+        <iframe
+          src={`https://www.youtube-nocookie.com/embed/${this.__videoId}`}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+        />
+      </YouTubeEmbed>
+    );
+  }
+
+  exportJSON(): SerializedYouTubeNode {
+    return {
+      type: 'youtube',
+      videoId: this.__videoId,
+      version: 1,
+    };
+  }
+
+  static importJSON(serializedNode: SerializedYouTubeNode): YouTubeNode {
+    return $createYouTubeNode(serializedNode.videoId);
+  }
+}
+
+export function $createYouTubeNode(videoId: string): YouTubeNode {
+  return new YouTubeNode(videoId);
+}
+
+export function $isYouTubeNode(node: LexicalNode | null | undefined): node is YouTubeNode {
+  return node instanceof YouTubeNode;
+}
+
+// Update the paste handling to include YouTube links
+function handleYouTubeLink(text: string, editor: any) {
+  const match = text.match(YOUTUBE_URL_REGEX);
+  if (match && match[1]) {
+    const videoId = match[1];
+    editor.update(() => {
+      const youtubeNode = $createYouTubeNode(videoId);
+      const selection = $getSelection();
+      if (selection) {
+        selection.insertNodes([youtubeNode]);
+      }
+    });
+    return true;
+  }
+  return false;
+}
+
+// Update ImagePastePlugin to handle YouTube links
 function ImagePastePlugin(): null {
   const [editor] = useLexicalComposerContext();
 
   useEffect(() => {
-    // Handle paste events
     const handlePaste = (event: ClipboardEvent) => {
+      const text = event.clipboardData?.getData('text');
+      if (text && handleYouTubeLink(text, editor)) {
+        event.preventDefault();
+        return;
+      }
+
       const files = event.clipboardData?.files;
       if (!files || files.length === 0) return;
 
@@ -326,19 +440,6 @@ function ImagePastePlugin(): null {
   return null;
 }
 
-// Update EditorPlugins to include ImagePastePlugin
-const EditorPlugins = ({ onSubmit }: { onSubmit: (markdown: string) => void }) => {
-  return (
-    <>
-      <HistoryPlugin />
-      <AutoFocusPlugin />
-      <MarkdownShortcutPlugin transformers={TRANSFORMERS} />
-      <KeyboardEventPlugin onSubmit={onSubmit} />
-      <ImagePastePlugin />
-    </>
-  );
-};
-
 // Custom onChange handler
 const OnChangePlugin = ({ onChange }: { onChange: (state: EditorState) => void }) => {
   const [editor] = useLexicalComposerContext();
@@ -352,7 +453,77 @@ const OnChangePlugin = ({ onChange }: { onChange: (state: EditorState) => void }
   return null;
 };
 
-// Update initialConfig to include ImageNode
+interface SelectionAnchor {
+  offset: number;
+  key: string;
+}
+
+interface EditorSelection {
+  anchor: SelectionAnchor;
+}
+
+// Add FocusPlugin to handle window focus events
+const FocusPlugin = (): null => {
+  const [editor] = useLexicalComposerContext();
+  const lastSelectionRef = useRef<{ offset: number, key: string } | null>(null);
+
+  useEffect(() => {
+    // Store selection state when editor loses focus
+    const handleBlur = () => {
+      editor.getEditorState().read(() => {
+        const selection = $getSelection() as EditorSelection | null;
+        if (selection?.anchor) {
+          lastSelectionRef.current = {
+            offset: selection.anchor.offset,
+            key: selection.anchor.key
+          };
+        }
+      });
+    };
+
+    // Restore selection state when window gains focus
+    const handleFocus = () => {
+      if (lastSelectionRef.current) {
+        editor.focus(() => {
+          const { offset, key } = lastSelectionRef.current!;
+          const node = editor._keyToDOMMap.get(key);
+          if (node) {
+            const range = document.createRange();
+            range.setStart(node, offset);
+            range.setEnd(node, offset);
+            const selection = window.getSelection();
+            if (selection) {
+              selection.removeAllRanges();
+              selection.addRange(range);
+            }
+          }
+        });
+      } else {
+        editor.focus();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    editor.registerCommand(
+      KEY_ENTER_COMMAND,
+      () => {
+        lastSelectionRef.current = null;
+        return false;
+      },
+      COMMAND_PRIORITY_LOW
+    );
+    editor._rootElement?.addEventListener('blur', handleBlur);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      editor._rootElement?.removeEventListener('blur', handleBlur);
+    };
+  }, [editor]);
+
+  return null;
+};
+
+// Update initialConfig to include ImageNode and YouTubeNode
 const initialConfig = {
   namespace: 'MessagingEditor',
   // Initial editor state - empty for now
@@ -368,7 +539,8 @@ const initialConfig = {
     ListItemNode,
     CodeNode,
     LinkNode,
-    ImageNode
+    ImageNode,
+    YouTubeNode
   ],
   // Define the theme with CSS classes
   theme: {
@@ -459,6 +631,20 @@ const Editor = ({ onSubmit }: EditorProps): JSX.Element => {
           </EditorInner>
         </LexicalComposer>
       </EditorContainer>
+    </>
+  );
+};
+
+// Update EditorPlugins to include FocusPlugin
+const EditorPlugins = ({ onSubmit }: { onSubmit: (markdown: string) => void }) => {
+  return (
+    <>
+      <HistoryPlugin />
+      <AutoFocusPlugin />
+      <MarkdownShortcutPlugin transformers={TRANSFORMERS} />
+      <KeyboardEventPlugin onSubmit={onSubmit} />
+      <ImagePastePlugin />
+      <FocusPlugin />
     </>
   );
 };

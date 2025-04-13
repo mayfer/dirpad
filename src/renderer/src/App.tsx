@@ -8,31 +8,24 @@ const GlobalStyle = createGlobalStyle`
     margin: 0;
     padding: 0;
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+    height: 100vh;
+    color: #fff;
+  }
+  
+  #root {
+    height: 100%;
+    width: 100%;
+    margin: 0;
+    padding: 0;
   }
 `;
 
 const AppContainer = styled.div`
   max-width: 900px;
-  margin: 0 auto;
-  padding: 40px 20px;
-`;
-
-const Header = styled.header`
-  text-align: center;
-  margin-bottom: 30px;
-`;
-
-const Title = styled.h1`
-  font-size: 28px;
-  font-weight: 600;
-  color: #333;
-  margin-bottom: 8px;
-`;
-
-const Subtitle = styled.p`
-  font-size: 16px;
-  color: #666;
+  min-width: 300px;
+  padding: 30px;
   margin: 0;
+  height: 100%;
 `;
 
 const MarkdownPreview = styled.div<{ $show: boolean }>`
@@ -54,10 +47,6 @@ function App(): JSX.Element {
     <>
       <GlobalStyle />
       <AppContainer>
-        <Header>
-          <Title>dirpad</Title>
-          <Subtitle>A simple markdown notepad with rich text capabilities</Subtitle>
-        </Header>
         <Editor onSubmit={handleMarkdownSubmit} />
         {markdownPreview.text && (
           <MarkdownPreview $show={markdownPreview.show}>

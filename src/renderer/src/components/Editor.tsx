@@ -386,7 +386,8 @@ const LinkPreviewContainer = styled.div`
   border-radius: 8px;
   overflow: hidden;
   margin: 16px 0;
-  max-width: 100%;
+  max-width: calc(100% - 100px);
+  box-sizing: border-box;
   display: flex;
   flex-direction: row;
   background-color: #f8f9fa;
